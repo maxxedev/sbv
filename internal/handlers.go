@@ -176,8 +176,26 @@ func HandleMessages(c echo.Context) error {
 
 	// If type is "conversation", return combined messages and calls
 	if convType == "conversation" {
-		// Parse limit and offset parameters
-		limit := 100000 // Default to 100k (effectively unlimited for most users)
+		// Get user ID from context to fetch settings
+		userID, ok := c.Get("user_id").(string)
+		if !ok {
+			return c.JSON(http.StatusUnauthorized, map[string]string{
+				"error": "User not authenticated",
+			})
+		}
+
+		// Fetch user settings
+		settings, err := GetUserSettings(userID)
+		if err != nil {
+			slog.Error("Error getting user settings", "error", err)
+			settings = GetDefaultSettings()
+		}
+
+		// Use user's configured limit as default, allow query param override
+		limit := settings.Conversations.MessageLimit
+		if limit <= 0 {
+			limit = 100000
+		}
 		offset := 0
 
 		if limitStr := c.QueryParam("limit"); limitStr != "" {
@@ -190,22 +208,6 @@ func HandleMessages(c echo.Context) error {
 			if parsedOffset, err := strconv.Atoi(offsetStr); err == nil && parsedOffset >= 0 {
 				offset = parsedOffset
 			}
-		}
-
-		// Get user ID from context to fetch settings
-		userID, ok := c.Get("user_id").(string)
-		if !ok {
-			return c.JSON(http.StatusUnauthorized, map[string]string{
-				"error": "User not authenticated",
-			})
-		}
-
-		// Fetch user settings to check if calls should be shown
-		settings, err := GetUserSettings(userID)
-		if err != nil {
-			slog.Error("Error getting user settings", "error", err)
-			// If we can't get settings, default to showing calls
-			settings = GetDefaultSettings()
 		}
 
 		activities, err := GetActivityByAddress(userDB, address, startDate, endDate, limit, offset)

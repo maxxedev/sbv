@@ -16,14 +16,16 @@ type Settings struct {
 
 // ConversationSettings contains settings for the conversation view
 type ConversationSettings struct {
-	ShowCalls bool `json:"show_calls"`
+	ShowCalls    bool `json:"show_calls"`
+	MessageLimit int  `json:"message_limit"`
 }
 
 // GetDefaultSettings returns the default settings
 func GetDefaultSettings() Settings {
 	return Settings{
 		Conversations: ConversationSettings{
-			ShowCalls: true,
+			ShowCalls:    true,
+			MessageLimit: 100000,
 		},
 	}
 }

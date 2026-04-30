@@ -7,7 +7,7 @@ import MediaGrid from './MediaGrid'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8085/api'
 
-function MessageThread({ conversation, startDate, endDate }) {
+function MessageThread({ conversation, startDate, endDate, messageLimit }) {
   const location = useLocation()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
@@ -235,6 +235,7 @@ function MessageThread({ conversation, startDate, endDate }) {
       }
       if (startDate) params.start = startDate.toISOString()
       if (endDate) params.end = endDate.toISOString()
+      if (messageLimit) params.limit = messageLimit
 
       const response = await axios.get(`${API_BASE}/messages`, { params })
       setItems(response.data || [])

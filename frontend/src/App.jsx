@@ -34,7 +34,8 @@ function App() {
   const [version, setVersion] = useState('...')
   const [settings, setSettings] = useState({
     conversations: {
-      show_calls: true
+      show_calls: true,
+      message_limit: 100000
     }
   })
 
@@ -89,7 +90,8 @@ function App() {
       // Use default settings if fetch fails
       setSettings({
         conversations: {
-          show_calls: true
+          show_calls: true,
+          message_limit: 100000
         }
       })
     }
@@ -372,6 +374,7 @@ function App() {
                 conversation={selectedConversation}
                 startDate={startDate}
                 endDate={endDate}
+                messageLimit={settings.conversations.message_limit}
               />
             </div>
           </>

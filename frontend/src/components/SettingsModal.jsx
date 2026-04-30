@@ -3,10 +3,20 @@ import axios from 'axios'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8085/api'
 
+const MESSAGE_LIMIT_OPTIONS = [
+  { value: 100, label: '100' },
+  { value: 1000, label: '1,000' },
+  { value: 10000, label: '10,000' },
+  { value: 100000, label: '100,000' },
+  { value: 200000, label: '200,000' },
+  { value: 500000, label: '500,000' },
+]
+
 function SettingsModal({ show, onClose, onSettingsUpdated }) {
   const [settings, setSettings] = useState({
     conversations: {
-      show_calls: true
+      show_calls: true,
+      message_limit: 100000
     }
   })
   const [loading, setLoading] = useState(true)
@@ -38,7 +48,6 @@ function SettingsModal({ show, onClose, onSettingsUpdated }) {
       setError('')
       await axios.put(`${API_BASE}/settings`, settings)
 
-      // Notify parent component that settings were updated
       if (onSettingsUpdated) {
         onSettingsUpdated(settings)
       }
@@ -58,6 +67,16 @@ function SettingsModal({ show, onClose, onSettingsUpdated }) {
       conversations: {
         ...settings.conversations,
         show_calls: !settings.conversations.show_calls
+      }
+    })
+  }
+
+  const handleMessageLimitChange = (e) => {
+    setSettings({
+      ...settings,
+      conversations: {
+        ...settings.conversations,
+        message_limit: parseInt(e.target.value, 10)
       }
     })
   }
@@ -89,7 +108,7 @@ function SettingsModal({ show, onClose, onSettingsUpdated }) {
 
                 <h6 className="mb-3">Conversations</h6>
 
-                <div className="form-check form-switch">
+                <div className="form-check form-switch mb-3">
                   <input
                     className="form-check-input"
                     type="checkbox"
@@ -103,6 +122,24 @@ function SettingsModal({ show, onClose, onSettingsUpdated }) {
                   </label>
                   <div className="form-text">
                     When enabled, phone calls will appear in the conversation list alongside messages.
+                  </div>
+                </div>
+
+                <div className="mb-3">
+                  <label htmlFor="messageLimitSelect" className="form-label">Messages to load</label>
+                  <select
+                    className="form-select"
+                    id="messageLimitSelect"
+                    value={settings.conversations.message_limit || 100000}
+                    onChange={handleMessageLimitChange}
+                    disabled={saving}
+                  >
+                    {MESSAGE_LIMIT_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <div className="form-text">
+                    Maximum number of messages shown when opening a conversation.
                   </div>
                 </div>
               </>
