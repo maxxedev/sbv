@@ -433,57 +433,58 @@ func InsertCallLogBatch(userDB *sql.DB, calls []CallLog) error {
 }
 
 func GetConversations(userDB *sql.DB, startDate, endDate *time.Time) ([]Conversation, error) {
-	// Build a query that groups all activity (messages and calls) by address
-	query := `
-		SELECT
-			address,
-			MAX(COALESCE(contact_name, '')) as contact_name,
-			(
-				SELECT COALESCE(subject, '')
-				FROM messages m2
-				WHERE m2.address = messages.address
-					AND m2.subject IS NOT NULL
-					AND m2.subject != ''
-				ORDER BY date DESC
-				LIMIT 1
-			) as subject,
-			(
-				SELECT
-					CASE
-						WHEN record_type = 1 THEN body  -- SMS
-						WHEN record_type = 2 THEN body  -- MMS
-						WHEN record_type = 3 AND type = 1 THEN 'Incoming call'
-						WHEN record_type = 3 AND type = 2 THEN 'Outgoing call'
-						WHEN record_type = 3 AND type = 3 THEN 'Missed call'
-						WHEN record_type = 3 AND type = 4 THEN 'Voicemail'
-						WHEN record_type = 3 AND type = 5 THEN 'Rejected call'
-						WHEN record_type = 3 AND type = 6 THEN 'Refused call'
-						ELSE 'Call'
-					END
-				FROM messages m3
-				WHERE m3.address = messages.address
-				ORDER BY date DESC
-				LIMIT 1
-			) as last_message,
-			MAX(date) as last_date,
-			COUNT(*) as activity_count
-		FROM messages
-		WHERE 1=1
-	`
-
+	// CTE approach: find the latest row per address in one pass, then join for aggregates.
+	// This avoids two correlated subqueries that each re-scan all rows for every address.
+	dateFilter := "1=1"
 	args := []interface{}{}
 	if startDate != nil {
-		query += " AND date >= ?"
+		dateFilter += " AND date >= ?"
 		args = append(args, startDate.Unix())
 	}
 	if endDate != nil {
-		query += " AND date <= ?"
+		dateFilter += " AND date <= ?"
 		args = append(args, endDate.Unix())
 	}
+	// args are used twice (once in each CTE reference), so duplicate them
+	args = append(args, args...)
 
-	query += `
-		GROUP BY address
-		ORDER BY last_date DESC
+	query := `
+		WITH
+		agg AS (
+			SELECT
+				address,
+				MAX(COALESCE(contact_name, ''))                                AS contact_name,
+				MAX(CASE WHEN subject != '' THEN subject ELSE NULL END)        AS subject,
+				MAX(date)                                                       AS last_date,
+				COUNT(*)                                                        AS activity_count
+			FROM messages
+			WHERE ` + dateFilter + `
+			GROUP BY address
+		),
+		latest AS (
+			SELECT m.address, m.record_type, m.type, m.body
+			FROM messages m
+			INNER JOIN agg ON m.address = agg.address AND m.date = agg.last_date
+			WHERE ` + dateFilter + `
+		)
+		SELECT
+			agg.address,
+			agg.contact_name,
+			COALESCE(agg.subject, '') AS subject,
+			CASE
+				WHEN latest.record_type = 3 AND latest.type = 1 THEN 'Incoming call'
+				WHEN latest.record_type = 3 AND latest.type = 2 THEN 'Outgoing call'
+				WHEN latest.record_type = 3 AND latest.type = 3 THEN 'Missed call'
+				WHEN latest.record_type = 3 AND latest.type = 4 THEN 'Voicemail'
+				WHEN latest.record_type = 3 AND latest.type = 5 THEN 'Rejected call'
+				WHEN latest.record_type = 3 AND latest.type = 6 THEN 'Refused call'
+				ELSE COALESCE(latest.body, '')
+			END AS last_message,
+			agg.last_date,
+			agg.activity_count
+		FROM agg
+		LEFT JOIN latest ON latest.address = agg.address
+		ORDER BY agg.last_date DESC
 	`
 
 	rows, err := userDB.Query(query, args...)
