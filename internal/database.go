@@ -114,6 +114,7 @@ func InitDB(filepath string) error {
 	CREATE INDEX IF NOT EXISTS idx_thread ON messages(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_record_type ON messages(record_type);
 	CREATE INDEX IF NOT EXISTS idx_record_type_date ON messages(record_type, date);
+	CREATE INDEX IF NOT EXISTS idx_address_date ON messages(address, date);
 
 	-- Create unique constraints for idempotent imports
 	-- record_type differentiates SMS (1), MMS (2), and calls (3)
@@ -222,6 +223,7 @@ func InitUserDB(userID string, filepath string) error {
 	CREATE INDEX IF NOT EXISTS idx_thread ON messages(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_record_type ON messages(record_type);
 	CREATE INDEX IF NOT EXISTS idx_record_type_date ON messages(record_type, date);
+	CREATE INDEX IF NOT EXISTS idx_address_date ON messages(address, date);
 
 	-- record_type differentiates SMS (1), MMS (2), and calls (3)
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_message_unique ON messages(record_type, address, date, type, COALESCE(body, ''), COALESCE(content_type, ''), COALESCE(message_id, ''), COALESCE(duration, 0));
@@ -690,11 +692,11 @@ func GetActivity(userDB *sql.DB, startDate, endDate *time.Time, limit, offset in
 func GetActivityByAddress(userDB *sql.DB, address string, startDate, endDate *time.Time, limit, offset int) ([]ActivityItem, error) {
 	var activities []ActivityItem
 
-	// Query from unified table
+	// Query from unified table — media_data is intentionally excluded; fetched on-demand via /api/media
 	query := `
 		SELECT record_type, date, address, COALESCE(contact_name, '') as contact_name,
 		       id, body, type, read, thread_id, COALESCE(subject, ''),
-		       COALESCE(media_type, ''), COALESCE(media_data, ''),
+		       COALESCE(media_type, ''),
 		       COALESCE(protocol, 0), COALESCE(status, 0), COALESCE(service_center, ''),
 		       COALESCE(sub_id, 0), COALESCE(content_type, ''), COALESCE(read_report, 0),
 		       COALESCE(read_status, 0), COALESCE(message_id, ''), COALESCE(message_size, 0),
@@ -745,14 +747,13 @@ func GetActivityByAddress(userDB *sql.DB, address string, startDate, endDate *ti
 		// Message fields
 		var body, subject, mediaType, serviceCenter, contentType, messageID, subscriptionID, addressesStr, sender sql.NullString
 		var readInt, threadID, protocol, status, subID, readReport, readStatus, messageSize, messageTypeField, simSlot sql.NullInt64
-		var mediaData []byte
 
 		// Call fields
 		var duration, presentation sql.NullInt64
 
 		err := rows.Scan(&recordType, &dateUnix, &address, &contactName,
 			&id, &body, &itemType, &readInt, &threadID, &subject,
-			&mediaType, &mediaData,
+			&mediaType,
 			&protocol, &status, &serviceCenter,
 			&subID, &contentType, &readReport,
 			&readStatus, &messageID, &messageSize,
@@ -788,7 +789,6 @@ func GetActivityByAddress(userDB *sql.DB, address string, startDate, endDate *ti
 				ThreadID:      int(threadID.Int64),
 				Subject:       subject.String,
 				MediaType:     mediaType.String,
-				MediaData:     mediaData,
 				Protocol:      int(protocol.Int64),
 				Status:        int(status.Int64),
 				ServiceCenter: serviceCenter.String,
@@ -821,10 +821,6 @@ func GetActivityByAddress(userDB *sql.DB, address string, startDate, endDate *ti
 				msg.Addresses = strings.Split(address, ",")
 				slog.Debug("GetActivityByAddress: addresses from address field", "id", id.Int64, "count", len(msg.Addresses), "values", msg.Addresses)
 			}
-
-			// Don't load media data - it will be fetched on demand via /api/media
-			// Clear MediaData to save memory in response
-			msg.MediaData = nil
 
 			slog.Debug("GetActivityByAddress: Message", "id", msg.ID, "address", msg.Address, "type", msg.Type, "sender", msg.Sender, "addresses", msg.Addresses, "media_type", msg.MediaType, "body", truncateString(msg.Body, 50))
 
