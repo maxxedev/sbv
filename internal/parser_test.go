@@ -2,7 +2,9 @@ package internal
 
 
 import (
+	"database/sql"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -260,5 +262,51 @@ func TestInvalidXML(t *testing.T) {
 		}
 		// Date "notanumber" should result in Unix epoch
 		t.Logf("Invalid date parsed as: %v", msg.Date)
+	}
+}
+
+func TestDefaultUploadMode(t *testing.T) {
+	// Default should be tempfile
+	if got := GetDefaultUploadMode(); got != "tempfile" {
+		t.Errorf("expected default 'tempfile', got %q", got)
+	}
+}
+
+func TestSetDefaultUploadMode(t *testing.T) {
+	original := GetDefaultUploadMode()
+	defer SetDefaultUploadMode(original)
+
+	SetDefaultUploadMode("pipe")
+	if got := GetDefaultUploadMode(); got != "pipe" {
+		t.Errorf("expected 'pipe', got %q", got)
+	}
+
+	SetDefaultUploadMode("tempfile")
+	if got := GetDefaultUploadMode(); got != "tempfile" {
+		t.Errorf("expected 'tempfile', got %q", got)
+	}
+}
+
+func TestProcessUploadedFileFromReader(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	if err := InitUserDB("test-user", dbPath); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	r := strings.NewReader(sampleXML)
+	// Call directly (not in goroutine) so we can observe results synchronously
+	processUploadedFileFromReaderSync("test-user", "testuser", r, db)
+
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM messages").Scan(&count); err != nil {
+		t.Fatalf("count messages: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 messages, got %d", count)
 	}
 }

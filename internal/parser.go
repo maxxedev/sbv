@@ -620,6 +620,16 @@ var (
 	uploadProgressLock sync.RWMutex
 )
 
+var defaultUploadMode = "tempfile"
+
+func SetDefaultUploadMode(mode string) {
+	defaultUploadMode = mode
+}
+
+func GetDefaultUploadMode() string {
+	return defaultUploadMode
+}
+
 // GetUploadProgress returns the current upload progress
 func GetUploadProgress() *UploadProgress {
 	uploadProgressLock.RLock()
@@ -959,4 +969,47 @@ func ParseSMSBackupStreaming(userDB *sql.DB, userID string, r io.Reader, batchSi
 	SetUploadProgress(messageCount, messageCount, "completed")
 
 	return messageCount, callCount, nil
+}
+
+// processUploadedFileFromReaderSync is the testable core: parses r into userDB.
+func processUploadedFileFromReaderSync(userID, username string, r io.Reader, userDB *sql.DB) {
+	slog.Info("Starting pipe-mode processing", "user", username)
+
+	messageCount, callCount, err := ParseSMSBackupStreaming(userDB, userID, r, 1)
+	if err != nil {
+		slog.Error("Error processing file", "error", err)
+		SetUploadProgress(0, 0, "error")
+		uploadProgressLock.Lock()
+		if uploadProgress != nil {
+			uploadProgress.mu.Lock()
+			uploadProgress.ErrorMessage = fmt.Sprintf("Failed to process file: %v", err)
+			uploadProgress.mu.Unlock()
+		}
+		uploadProgressLock.Unlock()
+		return
+	}
+
+	slog.Info("Completed pipe-mode processing", "messages", messageCount, "calls", callCount)
+}
+
+// ProcessUploadedFileFromReader processes r in the background without writing a temp file.
+// Intended to be called in a goroutine; the caller is responsible for closing r on error.
+func ProcessUploadedFileFromReader(userID, username string, r io.Reader) {
+	slog.Info("Starting background pipe-mode processing", "user", username)
+
+	userDB, err := GetUserDB(userID, username)
+	if err != nil {
+		slog.Error("Error getting user database", "error", err)
+		SetUploadProgress(0, 0, "error")
+		uploadProgressLock.Lock()
+		if uploadProgress != nil {
+			uploadProgress.mu.Lock()
+			uploadProgress.ErrorMessage = fmt.Sprintf("Failed to get user database: %v", err)
+			uploadProgress.mu.Unlock()
+		}
+		uploadProgressLock.Unlock()
+		return
+	}
+
+	processUploadedFileFromReaderSync(userID, username, r, userDB)
 }
