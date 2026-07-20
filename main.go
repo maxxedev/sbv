@@ -26,6 +26,7 @@ func main() {
 	journalMode   := flag.Bool("journal", false, "Use rollback journal mode instead of WAL (for network filesystems)")
 	blobStorage   := flag.String("blob-storage", "", "Blob storage mode: 'db' (default) or 'disk'")
 	blobDir       := flag.String("blob-dir", "", "Base directory for disk blobs (default: <DB_PATH_PREFIX>/media)")
+	uploadMode    := flag.String("upload-mode", "", "Upload processing mode: 'tempfile' (default) or 'pipe'")
 	flag.Parse()
 
 	// Resolve blob storage config: flags take precedence over env vars
@@ -40,6 +41,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "invalid --blob-storage value %q: must be 'db' or 'disk'\n", resolvedBlobStorage)
 		os.Exit(1)
 	}
+
+	resolvedUploadMode := *uploadMode
+	if resolvedUploadMode == "" {
+		resolvedUploadMode = os.Getenv("UPLOAD_MODE")
+	}
+	if resolvedUploadMode == "" {
+		resolvedUploadMode = "tempfile"
+	}
+	if resolvedUploadMode != "tempfile" && resolvedUploadMode != "pipe" {
+		fmt.Fprintf(os.Stderr, "invalid --upload-mode value %q: must be 'tempfile' or 'pipe'\n", resolvedUploadMode)
+		os.Exit(1)
+	}
+	internal.SetDefaultUploadMode(resolvedUploadMode)
 
 	dbPathPrefix := os.Getenv("DB_PATH_PREFIX")
 	if dbPathPrefix == "" {
@@ -69,6 +83,8 @@ func main() {
 	} else {
 		logger.Info("Blob storage: db")
 	}
+
+	logger.Info("Upload mode", "mode", resolvedUploadMode)
 
 	// Initialize authentication database
 	authDBPath := filepath.Join(dbPathPrefix, "sbv.db")
